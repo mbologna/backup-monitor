@@ -48,3 +48,9 @@ a writable `/tmp`, which the OCI SDK uses.
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
+
+Dependencies resolve only to releases at least 7 days old (`exclude-newer`
+in `pyproject.toml`), and the image installs exactly what `uv.lock` pins. To
+take a CVE fix released less than 7 days ago, add the package to
+`exclude-newer-package` as `<name> = false`, run `uv lock`, and remove the
+entry once the release is a week old.
