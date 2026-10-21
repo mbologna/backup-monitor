@@ -1,11 +1,20 @@
+FROM ghcr.io/astral-sh/uv:0.12.24@sha256:3af4716e991d6956a41e573eab705d0ee08500cd829ed30293eb8472f372c65a AS uv
+
 FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS build
 
 # git: apprise-notify is a git dependency. Installed into a virtualenv, so the
-# runtime stage needs neither git nor pip.
+# runtime stage needs neither git nor uv.
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-COPY pyproject.toml README.md LICENSE /tmp/build/
-COPY src/ /tmp/build/src/
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir /tmp/build
+COPY --from=uv /uv /usr/local/bin/uv
+# Install exactly what uv.lock pins, checking its hashes, rather than
+# re-resolving pyproject.toml at build time. Bytecode is compiled here because
+# the runtime image sets PYTHONDONTWRITEBYTECODE and runs read-only.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/local/bin/python3 UV_PYTHON_DOWNLOADS=never \
+    UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_NO_CACHE=1
+WORKDIR /tmp/build
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src/ src/
+RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 COPY --from=build /opt/venv /opt/venv
