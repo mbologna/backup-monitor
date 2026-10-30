@@ -1,11 +1,11 @@
-FROM ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff AS uv
-
 FROM python:3.14.8-slim@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS build
 
 # git: apprise-notify is a git dependency. Installed into a virtualenv, so the
 # runtime stage needs neither git nor uv.
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-COPY --from=uv /uv /usr/local/bin/uv
+# uv from PyPI, hash-checked (requirements-uv.txt says why).
+COPY requirements-uv.txt /tmp/
+RUN pip install --no-cache-dir --root-user-action=ignore --require-hashes -r /tmp/requirements-uv.txt
 # Install exactly what uv.lock pins, checking its hashes, rather than
 # re-resolving pyproject.toml at build time. Bytecode is compiled here because
 # the runtime image sets PYTHONDONTWRITEBYTECODE and runs read-only.
