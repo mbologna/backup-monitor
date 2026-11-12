@@ -1,8 +1,11 @@
-FROM python:3.14.9-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8 AS build
+FROM python:3.15.1-slim@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51 AS build
 
-# git: apprise-notify is a git dependency. Installed into a virtualenv, so the
-# runtime stage needs neither git nor uv.
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# git: apprise-notify is a git dependency. gcc + libc6-dev: oci pins crc32c and
+# python-pkcs11 to releases without wheels for this Python, so they build from
+# source. Installed into a virtualenv, so the runtime stage needs neither the
+# toolchain, git nor uv.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc git libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 # uv from PyPI, hash-checked (requirements-uv.txt says why).
 COPY requirements-uv.txt /tmp/
 RUN pip install --no-cache-dir --root-user-action=ignore --require-hashes -r /tmp/requirements-uv.txt
@@ -16,7 +19,7 @@ COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ src/
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.14.9-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+FROM python:3.15.1-slim@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51
 COPY --from=build /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/tmp
 # The base image's pip (with the packages it vendors) and ensurepip's
