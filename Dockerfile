@@ -19,5 +19,10 @@ RUN uv sync --locked --no-dev --no-editable
 FROM python:3.14.9-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
 COPY --from=build /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/tmp
+# The base image's pip (with the packages it vendors) and ensurepip's
+# bundled pip wheel are never used at run time; removing them keeps their
+# CVEs out of the image.
+RUN /usr/local/bin/python3 -m pip uninstall -y --root-user-action=ignore pip \
+    && rm -rf /usr/local/lib/python3*/ensurepip
 USER 65534:65534
 ENTRYPOINT ["backup-monitor"]
