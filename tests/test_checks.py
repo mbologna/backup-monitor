@@ -109,3 +109,33 @@ def test_main_ok(env, monkeypatch):
         bm.main()
     assert e.value.code == 0
     assert env == []
+
+
+def test_main_fails_over_to_the_next_apprise_url(env, monkeypatch):
+    """APPRISE_URL may list several URLs: the first is retried once, then the next delivers."""
+    import io
+    import urllib.error
+
+    import apprise_notify
+
+    monkeypatch.setenv("APPRISE_URL", "http://own/notify/x http://other/notify/x")
+    monkeypatch.setattr(bm, "notify", apprise_notify.notify)
+    monkeypatch.setattr(apprise_notify, "RETRY_DELAY", 0)
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+    def urlopen(req, timeout):
+        calls.append(req.full_url)
+        if "own" in req.full_url:
+            raise urllib.error.URLError("connection refused")
+        return Response(b"")
+
+    monkeypatch.setattr(apprise_notify.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(bm, "kube_get", fake_get())
+    monkeypatch.setattr(bm, "list_etcd_snapshots", lambda b, p: [])
+    with pytest.raises(SystemExit) as e:
+        bm.main()
+    assert e.value.code == 1
+    assert calls == ["http://own/notify/x", "http://own/notify/x", "http://other/notify/x"]

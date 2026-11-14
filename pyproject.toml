@@ -6,7 +6,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "apprise-notify @ git+https://github.com/mbologna/apprise-notify-py@v1.0.0",
+    "apprise-notify @ git+https://github.com/mbologna/apprise-notify-py@v1.2.0",
     "oci>=2.160.0",
 ]
 
