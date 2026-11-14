@@ -193,8 +193,8 @@ wheels = [
 
 [[package]]
 name = "apprise-notify"
-version = "1.0.0"
-source = { git = "https://github.com/mbologna/apprise-notify-py?rev=v1.0.0#29e828196f6f381b83eaa454a04ba362c6f7dff9" }
+version = "1.2.0"
+source = { git = "https://github.com/mbologna/apprise-notify-py?rev=v1.2.0#7267012a8d5b8ad21003883d2612f26f161e9896" }
 
 [[package]]
 name = "asn1crypto"
@@ -232,7 +232,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "apprise-notify", git = "https://github.com/mbologna/apprise-notify-py?rev=v1.0.0" },
+    { name = "apprise-notify", git = "https://github.com/mbologna/apprise-notify-py?rev=v1.2.0" },
     { name = "oci", specifier = ">=2.160.0" },
 ]
 

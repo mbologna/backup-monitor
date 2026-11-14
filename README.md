@@ -23,7 +23,7 @@ cluster as well.
 
 | Variable | Required | Default | |
 |---|---|---|---|
-| `APPRISE_URL` | yes | | Apprise notify URL |
+| `APPRISE_URL` | yes | | Apprise notify URL. Several space-separated URLs are tried in order until one delivers |
 | `MAX_BACKUP_AGE_HOURS` | yes | | Oldest acceptable Longhorn backup, per volume |
 | `MAX_ETCD_AGE_HOURS` | yes | | Oldest acceptable etcd snapshot upload |
 | `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the snapshots |
