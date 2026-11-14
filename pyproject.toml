@@ -44,3 +44,7 @@ addopts = "-v --strict-markers"
 
 [tool.coverage.run]
 source = ["backup_monitor"]
+
+[tool.coverage.report]
+# The current total, rounded down: CI fails when coverage drops below it.
+fail_under = 81

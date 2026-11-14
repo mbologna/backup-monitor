@@ -48,4 +48,6 @@ jobs:
       # auto-release runs inside docker-ci: Monday's schedule releases with
       # this strategy, a push to main only a CVE fix.
       release_strategy: conventional
+      # Offline start check: the app and the OCI SDK it imports lazily load.
+      smoke_cmd: "python -c 'import backup_monitor, oci'"
     secrets: inherit
