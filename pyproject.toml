@@ -79,5 +79,5 @@ omit = ["*/__main__.py"]
 [tool.coverage.report]
 # CI fails below this total (python-ci and ci-templates' python-test read
 # it). Raise it with the tests; don't lower it to merge.
-fail_under = 81
+fail_under = 83
 show_missing = true
