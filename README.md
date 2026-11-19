@@ -2,55 +2,110 @@
 
 [![CI](https://github.com/mbologna/backup-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/mbologna/backup-monitor/actions/workflows/ci.yml)
 
-A daily check that a [k3s](https://k3s.io/) cluster on
-[Oracle Cloud](https://www.oracle.com/cloud/) is actually being backed up.
-It runs in the cluster as a Kubernetes CronJob and reports through
-[Apprise](https://github.com/caronc/apprise-api).
+backup-monitor checks once a day that a [k3s](https://k3s.io/) cluster on
+[Oracle Cloud Infrastructure](https://www.oracle.com/cloud/) (OCI) is being
+backed up, and reports problems through an
+[Apprise API](https://github.com/caronc/apprise-api) server. It runs inside
+the cluster as a Kubernetes
+[CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
 
-- **[Longhorn](https://longhorn.io/):** the backup target must be available,
-  and every volume older than `MAX_BACKUP_AGE_HOURS` must have a completed
-  backup within that window.
-- **etcd:** the newest k3s etcd snapshot in an OCI Object Storage bucket must
-  be newer than `MAX_ETCD_AGE_HOURS`.
+## What it checks
 
-Each check that finds a problem sends one Apprise notification of type
-`failure`. A check that can't run (an API error, missing permissions) counts
-as a problem too, with the traceback in the notification. The run exits
-non-zero whenever anything was reported, so a failed Job is visible in the
-cluster as well.
+- [Longhorn](https://longhorn.io/) backups: the `default` BackupTarget must
+  be available, and every volume older than `MAX_BACKUP_AGE_HOURS` must have
+  a completed backup within that window. Younger volumes are skipped.
+  Problems name the volume by its PVC (`namespace/pvc`).
+- etcd snapshots: the newest object under `ETCD_PREFIX` in the
+  [OCI Object Storage](https://www.oracle.com/cloud/storage/object-storage/)
+  bucket `ETCD_BUCKET` must have been created within `MAX_ETCD_AGE_HOURS`.
+  No objects at all is a problem too.
+
+Each check that finds a problem sends one notification of type `failure`,
+titled `<CLUSTER_NAME>: Longhorn backups stale` or
+`<CLUSTER_NAME>: etcd snapshots stale`, with one problem per line. A check
+that cannot run (an API error, missing permissions) also counts as a
+problem, and its notification carries the traceback. The run exits 1 if
+either check reported anything, so the failed Job shows in the cluster as
+well; an undelivered notification is logged to stderr.
 
 ## Configuration
 
-| Variable | Required | Default | |
+All settings are environment variables.
+
+| Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `APPRISE_URL` | yes | | Apprise notify URL. Several space-separated URLs are tried in order until one delivers |
-| `MAX_BACKUP_AGE_HOURS` | yes | | Oldest acceptable Longhorn backup, per volume |
-| `MAX_ETCD_AGE_HOURS` | yes | | Oldest acceptable etcd snapshot upload |
-| `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the snapshots |
+| `APPRISE_URL` | yes | | Apprise API notify URL, such as `http://apprise:8000/notify/<key>`. Several space-separated URLs are tried in order until one delivers |
+| `MAX_BACKUP_AGE_HOURS` | yes | | Oldest acceptable Longhorn backup per volume, in hours |
+| `MAX_ETCD_AGE_HOURS` | yes | | Oldest acceptable etcd snapshot, in hours |
+| `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the k3s etcd snapshots |
 | `ETCD_PREFIX` | yes | | Object name prefix of the snapshots |
 | `CLUSTER_NAME` | no | `k3s` | Prefix of the notification titles |
 
-## Permissions
+The hour limits accept decimals (`36`, `0.5`).
 
-- A ServiceAccount allowed to `get` and `list` `backups`, `backuptargets` and
-  `volumes` (`longhorn.io`) in `longhorn-system`.
-- An OCI dynamic group for the cluster's instances, with a policy allowing it
-  to list objects in the bucket. The check signs in with instance principals,
+## Running it
+
+The image is `ghcr.io/mbologna/backup-monitor`, built for linux/amd64 and
+linux/arm64 and tagged `X.Y.Z` and `X.Y` for each release and `latest` for
+the newest. Its entry point is the
+`backup-monitor` console script, which takes no arguments.
+
+It needs the cluster around it:
+
+- A ServiceAccount allowed to `get` and `list` `backups`, `backuptargets`
+  and `volumes` (API group `longhorn.io`, version `v1beta2`) in
+  `longhorn-system`. The check reads them through the in-cluster Kubernetes
+  API with the pod's token.
+- An OCI dynamic group for the cluster's instances, with a policy allowing
+  it to list objects in the bucket. The check signs in with instance
+  principals through the
+  [OCI Python SDK](https://docs.oracle.com/en-us/iaas/tools/python/latest/),
   so no OCI credentials are stored in the cluster.
-- Egress to the Kubernetes API, OCI and Apprise.
+- Egress to the Kubernetes API, OCI and the Apprise server.
 
-The image runs as uid 65534 and works with a read-only root filesystem. Mount
-a writable `/tmp`, which the OCI SDK uses.
+The image runs as uid 65534 and works with a read-only root filesystem.
+Mount a writable `/tmp` (an `emptyDir`): the OCI SDK writes there, and
+`HOME` points to it.
 
 ## Development
 
+The project uses [uv](https://docs.astral.sh/uv/) and Python 3.15, the
+version in the image.
+
 ```sh
-uv run pytest
+uv sync
+uv run pytest --cov
 uv run ruff check . && uv run ruff format --check .
+uv run pre-commit install        # once
+uv run pre-commit run --all-files
 ```
 
+`pytest --cov` fails below the coverage floor, `fail_under` in
+`pyproject.toml`. The [pre-commit](https://pre-commit.com/) hooks add
+[ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy-lang.org/),
+[bandit](https://bandit.readthedocs.io/) and
+[hadolint](https://github.com/hadolint/hadolint) to the usual file checks.
+
 Dependencies resolve only to releases at least 7 days old (`exclude-newer`
-in `pyproject.toml`), and the image installs exactly what `uv.lock` pins. To
-take a CVE fix released less than 7 days ago, add the package to
+in `pyproject.toml`), and the image installs exactly what `uv.lock` pins.
+To take a CVE fix released less than 7 days ago, add the package to
 `exclude-newer-package` as `<name> = false`, run `uv lock`, and remove the
 entry once the release is a week old.
+
+CI runs the reusable `python-ci` and `docker-ci` workflows from
+[mbologna/.github](https://github.com/mbologna/.github): ruff, the tests
+with the coverage gate, pip-audit, then the image build and a smoke test.
+Pull requests build the image without pushing it. Releases are `vX.Y.Z`
+tags, cut on Mondays when `main` has gained a `feat`, `fix`, `perf`,
+`revert` or breaking [Conventional Commit](https://www.conventionalcommits.org/)
+since the last tag; runtime dependency updates ship in the same weekly
+release. Only a release tag publishes the image. The `version` in
+`pyproject.toml` stays `0.0.0`.
+
+The project skeleton comes from
+[python-app-template](https://github.com/mbologna/python-app-template)
+through [Copier](https://copier.readthedocs.io/) (`.copier-answers.yml`).
+
+## Licence
+
+[MIT](LICENSE)
