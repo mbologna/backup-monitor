@@ -1,17 +1,31 @@
 # Copier's record of this project's template answers. Don't edit by hand:
 # `copier update` (or Renovate's copier manager) reads it to apply
 # template changes.
-_commit: v1.1.3
+_commit: v1.3.0
 _src_path: https://github.com/mbologna/python-app-template.git
 author: Michele Bologna
 base_variant: slim
+build_packages: gcc libc6-dev
+codecov: false
 coverage_fail_under: 83
 description: 'Daily check that a k3s cluster on Oracle Cloud is backed up: Longhorn
     volume backups and etcd snapshots in OCI Object Storage, with problems reported
     through Apprise'
+entrypoint: entrypoint
 forge: github
+image_uid: 65534
+image_user: ''
+license: MIT
+main_module: true
 notifications: true
+owned_files: []
 package_name: backup_monitor
+port: 0
 project_name: backup-monitor
+releases: true
+runtime_env: ''
+runtime_packages: ''
 sample_code: false
+script_target: backup_monitor:main
 smoke_cmd: python -c 'import backup_monitor, oci'
+writable_dirs: ''
