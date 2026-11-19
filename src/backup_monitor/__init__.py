@@ -42,7 +42,7 @@ def kube_get(path):
         f"https://kubernetes.default.svc/{path}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as r:  # nosec B310: fixed https URL of the in-cluster API
         return json.load(r)
 
 
