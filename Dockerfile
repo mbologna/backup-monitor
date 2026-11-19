@@ -1,10 +1,9 @@
 FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 
-# git: apprise-notify is a git dependency. gcc + libc6-dev: oci pins crc32c and
-# python-pkcs11 to releases without wheels for this Python, so they build from
-# source. Installed into a virtualenv, so the runtime stage needs neither the
-# toolchain, git nor uv.
-RUN apt-get update && apt-get install -y --no-install-recommends gcc git libc6-dev \
+# gcc + libc6-dev: oci pins crc32c and python-pkcs11 to releases without
+# wheels for this Python, so they build from source. Installed into a
+# virtualenv, so the runtime stage needs neither the toolchain nor uv.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 # uv from PyPI, hash-checked (requirements-uv.txt says why).
 COPY requirements-uv.txt /tmp/
