@@ -95,16 +95,23 @@ entry once the release is a week old.
 CI runs the reusable `python-ci` and `docker-ci` workflows from
 [mbologna/.github](https://github.com/mbologna/.github): ruff, the tests
 with the coverage gate, pip-audit, then the image build and a smoke test.
-Pull requests build the image without pushing it. Releases are `vX.Y.Z`
-tags, cut on Mondays when `main` has gained a `feat`, `fix`, `perf`,
-`revert` or breaking [Conventional Commit](https://www.conventionalcommits.org/)
-since the last tag; runtime dependency updates ship in the same weekly
-release. Only a release tag publishes the image. The `version` in
-`pyproject.toml` stays `0.0.0`.
+Pull requests build the image without pushing it.
 
 The project skeleton comes from
 [python-app-template](https://github.com/mbologna/python-app-template)
 through [Copier](https://copier.readthedocs.io/) (`.copier-answers.yml`).
+
+## Versioning
+
+Releases follow SemVer: [auto-release](https://github.com/mbologna/auto-release)
+tags `vX.Y.Z` from the [Conventional Commit](https://www.conventionalcommits.org/)
+types (`feat` minor; `fix`, `perf`, `revert` patch; a breaking change
+major). It cuts them on Mondays when `main` has gained such a commit since
+the last tag, and runtime dependency updates ship in the same weekly
+release; a CVE fix releases on the push that brings it. Only a release tag
+publishes the image, as `X.Y.Z`, `X.Y` and `latest`. The `version` in
+`pyproject.toml` stays `0.0.0`. See the
+[versioning standard](https://github.com/mbologna/.github/blob/main/VERSIONING.md).
 
 ## Licence
 
