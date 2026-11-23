@@ -1,8 +1,14 @@
 import datetime as dt
+import http.server
+import json
+import threading
 
 import pytest
 
 import backup_monitor as bm
+
+# The real notify, before the env fixture replaces it.
+NOTIFY = bm.notify
 
 NOW = dt.datetime(2026, 10, 18, 12, 0, tzinfo=dt.UTC)
 DAY = dt.timedelta(hours=36)
@@ -111,31 +117,100 @@ def test_main_ok(env, monkeypatch):
     assert env == []
 
 
-def test_main_fails_over_to_the_next_apprise_url(env, monkeypatch):
+class StubApprise:
+    """A local Apprise API stand-in answering every POST with one status; records the requests."""
+
+    def __init__(self, status):
+        calls = self.calls = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("content-length", 0))
+                calls.append((self.path, self.headers.get("content-type"), json.loads(self.rfile.read(length))))
+                self.send_response(status)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}/notify/backup-key"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def stub(monkeypatch):
+    monkeypatch.setattr(bm, "APPRISE_RETRY_WAIT_SECONDS", 0)
+    servers = []
+
+    def start(status):
+        servers.append(StubApprise(status))
+        return servers[-1]
+
+    yield start
+    for server in servers:
+        server.close()
+
+
+def test_notify_sends_the_notification_as_json_to_the_key(stub):
+    """No format: Apprise API treats the body as plain text and passes it on unchanged."""
+    ok = stub(200)
+    assert bm.notify(ok.url, "t", "b", "failure")
+    assert ok.calls == [("/notify/backup-key", "application/json", {"title": "t", "body": "b", "type": "failure"})]
+
+
+def test_notify_retries_a_failing_url_once_then_the_next_delivers(stub):
+    down, ok = stub(500), stub(200)
+    assert bm.notify(f"{down.url} {ok.url}", "t", "b", "failure")
+    assert (len(down.calls), len(ok.calls)) == (2, 1)
+
+
+def test_notify_counts_no_configuration_204_as_not_delivered(stub):
+    empty, ok = stub(204), stub(200)
+    assert bm.notify(f"{empty.url} {ok.url}", "t", "b", "failure")
+    assert len(ok.calls) == 1
+
+
+def test_notify_first_delivery_wins(stub):
+    ok, other = stub(200), stub(200)
+    assert bm.notify(f"{ok.url} {other.url}", "t", "b", "failure")
+    assert (len(ok.calls), len(other.calls)) == (1, 0)
+
+
+def test_notify_every_url_failing_returns_false(stub):
+    a, b = stub(500), stub(500)
+    assert not bm.notify(f"{a.url} {b.url}", "t", "b", "failure")
+    assert (len(a.calls), len(b.calls)) == (2, 2)
+
+
+def test_notify_without_a_url_returns_false():
+    assert not bm.notify("", "t", "b", "failure")
+
+
+def test_apprise_api_url():
+    assert (
+        bm.apprise_api_url("http://apprise:8000/notify/backups", timeout=15)
+        == "apprise://apprise:8000/backups?method=json&version=1&retry=1&wait=1&rto=15"
+    )
+    assert (
+        bm.apprise_api_url("https://example.org/apprise/notify/k?x=y", timeout=5)
+        == "apprises://example.org/apprise/k?method=json&version=1&retry=1&wait=1&rto=5"
+    )
+
+
+def test_main_fails_over_to_the_next_apprise_url(env, stub, monkeypatch):
     """APPRISE_URL may list several URLs: the first is retried once, then the next delivers."""
-    import io
-    import urllib.error
-
-    import apprise_notify
-
-    monkeypatch.setenv("APPRISE_URL", "http://own/notify/x http://other/notify/x")
-    monkeypatch.setattr(bm, "notify", apprise_notify.notify)
-    monkeypatch.setattr(apprise_notify, "RETRY_DELAY", 0)
-    calls = []
-
-    class Response(io.BytesIO):
-        status = 200
-
-    def urlopen(req, timeout):
-        calls.append(req.full_url)
-        if "own" in req.full_url:
-            raise urllib.error.URLError("connection refused")
-        return Response(b"")
-
-    monkeypatch.setattr(apprise_notify.urllib.request, "urlopen", urlopen)
+    down, ok = stub(500), stub(200)
+    monkeypatch.setenv("APPRISE_URL", f"{down.url} {ok.url}")
+    monkeypatch.setattr(bm, "notify", NOTIFY)
     monkeypatch.setattr(bm, "kube_get", fake_get())
     monkeypatch.setattr(bm, "list_etcd_snapshots", lambda b, p: [])
     with pytest.raises(SystemExit) as e:
         bm.main()
     assert e.value.code == 1
-    assert calls == ["http://own/notify/x", "http://own/notify/x", "http://other/notify/x"]
+    assert (len(down.calls), len(ok.calls)) == (2, 1)
+    assert ok.calls[0][2]["title"] == "hotel: etcd snapshots stale"

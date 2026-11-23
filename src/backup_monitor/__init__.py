@@ -17,12 +17,17 @@ import os
 import ssl
 import sys
 import traceback
+import urllib.parse
 import urllib.request
 
-from apprise_notify import notify
+import apprise
 
 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
 LONGHORN = "apis/longhorn.io/v1beta2/namespaces/longhorn-system"
+# Seconds an Apprise API request may take.
+APPRISE_TIMEOUT_SECONDS = 15
+# Seconds before the one retry of an Apprise URL.
+APPRISE_RETRY_WAIT_SECONDS = 1
 
 
 def ts(s):
@@ -44,6 +49,33 @@ def kube_get(path):
     )
     with urllib.request.urlopen(req, context=ctx, timeout=30) as r:  # nosec B310: fixed https URL of the in-cluster API
         return json.load(r)
+
+
+def apprise_api_url(url, timeout=APPRISE_TIMEOUT_SECONDS):
+    """The apprise library's URL for an Apprise API endpoint, http(s)://host:port/notify/<key>.
+
+    JSON to /notify/<key> (version=1), as Apprise API expects, with one retry
+    and the given read timeout. Any query on the URL is dropped."""
+    parsed = urllib.parse.urlsplit(url)
+    scheme = "apprises" if parsed.scheme == "https" else "apprise"
+    prefix, _, key = parsed.path.rpartition("/notify/")
+    path = f"{prefix.strip('/')}/{key}".lstrip("/")
+    return f"{scheme}://{parsed.netloc}/{path}?method=json&version=1&retry=1&wait={APPRISE_RETRY_WAIT_SECONDS}&rto={timeout}"
+
+
+def notify(urls, title, body, type_):
+    """Send one notification and return whether it was delivered.
+
+    urls holds one Apprise API URL or several separated by whitespace. Each is
+    its own apprise priority group, so they are tried in order: the first that
+    delivers wins, and each is retried once before the next. No URL returns
+    False. apprise logs failures; it never raises."""
+    notifier = apprise.Apprise()
+    for priority, url in enumerate(urls.split(), start=1):
+        notifier.add(apprise_api_url(url), tag=f"{priority}:backup-monitor")
+    if not len(notifier):
+        return False
+    return bool(notifier.notify(title=title, body=body, notify_type=type_, tag="backup-monitor"))
 
 
 def check_longhorn(get, now, max_age):
@@ -95,7 +127,7 @@ def check_etcd(times, now, max_age, prefix):
 
 def main():
     env = os.environ
-    apprise = env["APPRISE_URL"]
+    apprise_url = env["APPRISE_URL"]
     cluster = env.get("CLUSTER_NAME", "k3s")
     now = dt.datetime.now(dt.UTC)
     max_backup = dt.timedelta(hours=float(env["MAX_BACKUP_AGE_HOURS"]))
@@ -115,7 +147,7 @@ def main():
         if problems:
             failed = True
             print(f"{name}: " + "; ".join(problems))
-            if not notify(apprise, f"{cluster}: {name} stale", "\n".join(problems), "failure"):
+            if not notify(apprise_url, f"{cluster}: {name} stale", "\n".join(problems), "failure"):
                 print(f"{name}: the Apprise notification was not delivered", file=sys.stderr)
         else:
             print(f"{name}: OK")
