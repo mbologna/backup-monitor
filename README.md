@@ -103,9 +103,11 @@ through [Copier](https://copier.readthedocs.io/) (`.copier-answers.yml`).
 
 ## Why not an existing tool
 
-- [Longhorn](https://longhorn.io/)'s metrics expose backup state and size,
-  but no last-backup timestamp, so an alert rule can't tell how old a backup
-  is.
+- [Longhorn](https://longhorn.io/) exposes `longhorn_volume_last_backup_at`
+  (since v1.11), so a Prometheus alert rule could check each volume's backup
+  age, but that needs a Prometheus and Alertmanager to run the rule, which
+  this setup doesn't have. A volume left out of the backup jobs on purpose
+  would also alert forever (longhorn/longhorn#13700).
 - [Gatus](https://github.com/TwiN/gatus) conditions have no date arithmetic,
   so Gatus can't check an age either.
 - [Healthchecks](https://healthchecks.io/) and
