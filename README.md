@@ -34,7 +34,7 @@ All settings are environment variables.
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `APPRISE_URL` | yes | | Apprise API notify URL, such as `http://apprise:8000/notify/<key>`. Several space-separated URLs are tried in order until one delivers |
+| `APPRISE_URL` | yes | | Apprise API notify URL, such as `http://apprise:8000/notify/<key>`. Several space-separated URLs are tried in order, each retried once, until one delivers |
 | `MAX_BACKUP_AGE_HOURS` | yes | | Oldest acceptable Longhorn backup per volume, in hours |
 | `MAX_ETCD_AGE_HOURS` | yes | | Oldest acceptable etcd snapshot, in hours |
 | `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the k3s etcd snapshots |

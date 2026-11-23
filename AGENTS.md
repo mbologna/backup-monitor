@@ -23,9 +23,11 @@ Daily check that a k3s cluster on Oracle Cloud is backed up: Longhorn volume bac
   when tests are added.
 - Dependencies: `uv add <pkg>`; uv.lock is committed and the image installs
   it with `--locked`. `exclude-newer` keeps releases younger than 7 days out.
-- Notifications go through `apprise_notify.notify()` with the `APPRISE_URL`
-  environment variable: one URL or several space-separated ones, tried in
-  order. It never raises; check its return value when sending matters.
+- Notifications go through `notify()` (the apprise library) with the
+  `APPRISE_URL` environment variable: one URL or several space-separated
+  ones, each its own priority group, tried in order and retried once before
+  the next. It returns False rather than raising; check it when sending
+  matters.
 - The image: non-root (uid 65534), no pip, nothing written outside `/tmp`
   (the OCI SDK writes there), so the root filesystem can be read-only.
 
