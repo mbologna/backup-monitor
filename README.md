@@ -101,6 +101,23 @@ The project skeleton comes from
 [python-app-template](https://github.com/mbologna/python-app-template)
 through [Copier](https://copier.readthedocs.io/) (`.copier-answers.yml`).
 
+## Why not an existing tool
+
+- [Longhorn](https://longhorn.io/)'s metrics expose backup state and size,
+  but no last-backup timestamp, so an alert rule can't tell how old a backup
+  is.
+- [Gatus](https://github.com/TwiN/gatus) conditions have no date arithmetic,
+  so Gatus can't check an age either.
+- [Healthchecks](https://healthchecks.io/) and
+  [Uptime Kuma](https://github.com/louislam/uptime-kuma), which wait for a
+  ping, need a push after each backup, and Longhorn can't send one.
+- None of them reads the age of the newest etcd snapshot in OCI Object
+  Storage.
+
+Checked 2026-11-23. A planned upstream pull request would add a last-backup
+timestamp metric to Longhorn:
+[#52](https://github.com/mbologna/backup-monitor/issues/52).
+
 ## Versioning
 
 Releases follow SemVer: [auto-release](https://github.com/mbologna/auto-release)
