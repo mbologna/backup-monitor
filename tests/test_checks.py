@@ -225,3 +225,68 @@ def test_main_fails_over_to_the_next_apprise_url(env, stub, monkeypatch):
     assert e.value.code == 1
     assert (len(down.calls), len(ok.calls)) == (2, 1)
     assert ok.calls[0][2]["title"] == "hotel: etcd snapshots stale"
+
+
+def test_sigv4_matches_the_aws_example():
+    """AWS's published GET Bucket (list objects) example for Signature Version 4."""
+    headers = bm.sigv4_headers(
+        "GET",
+        "https://examplebucket.s3.amazonaws.com/?max-keys=2&prefix=J",
+        "us-east-1",
+        "AKIAIOSFODNN7EXAMPLE",
+        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        dt.datetime(2013, 5, 24, tzinfo=dt.UTC),
+    )
+    assert headers["Authorization"] == (
+        "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, "
+        "SignedHeaders=host;x-amz-content-sha256;x-amz-date, "
+        "Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7"
+    )
+
+
+def s3_page(times, token=None):
+    ns = "http://s3.amazonaws.com/doc/2006-03-01/"
+    contents = "".join(f"<Contents><Key>k</Key><LastModified>{t}</LastModified></Contents>" for t in times)
+    more = f"<IsTruncated>true</IsTruncated><NextContinuationToken>{token}</NextContinuationToken>" if token else ""
+    return f'<ListBucketResult xmlns="{ns}">{more}{contents}</ListBucketResult>'.encode()
+
+
+def test_list_s3_objects_follows_continuation_tokens():
+    pages = {None: s3_page([iso(30)], token="t2"), "t2": s3_page([iso(2)])}
+    seen = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            query = dict(bm.urllib.parse.parse_qsl(bm.urllib.parse.urlsplit(self.path).query))
+            seen.append((bm.urllib.parse.urlsplit(self.path).path, query, self.headers["Authorization"][:16]))
+            body = pages[query.get("continuation-token")]
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        times = bm.list_s3_objects(f"http://127.0.0.1:{server.server_port}", "r", "bkt", "etcd/", "ak", "sk")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert times == [NOW - dt.timedelta(hours=30), NOW - dt.timedelta(hours=2)]
+    assert [s[0] for s in seen] == ["/bkt", "/bkt"]
+    assert seen[0][1] == {"list-type": "2", "prefix": "etcd/"}
+    assert seen[1][1]["continuation-token"] == "t2"
+    assert seen[0][2] == "AWS4-HMAC-SHA256"
+
+
+def test_list_etcd_snapshots_uses_s3_credentials_when_set(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ak")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "sk")
+    monkeypatch.setenv("S3_ENDPOINT", "https://ns.compat.objectstorage.r.oraclecloud.com")
+    monkeypatch.setenv("S3_REGION", "r")
+    calls = []
+    monkeypatch.setattr(bm, "list_s3_objects", lambda *a: calls.append(a) or [NOW])
+    assert bm.list_etcd_snapshots("bkt", "etcd/") == [NOW]
+    assert calls == [("https://ns.compat.objectstorage.r.oraclecloud.com", "r", "bkt", "etcd/", "ak", "sk")]

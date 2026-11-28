@@ -37,8 +37,12 @@ All settings are environment variables.
 | `APPRISE_URL` | yes | | Apprise API notify URL, such as `http://apprise:8000/notify/<key>`. Several space-separated URLs are tried in order, each retried once, until one delivers |
 | `MAX_BACKUP_AGE_HOURS` | yes | | Oldest acceptable Longhorn backup per volume, in hours |
 | `MAX_ETCD_AGE_HOURS` | yes | | Oldest acceptable etcd snapshot, in hours |
-| `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the k3s etcd snapshots |
+| `ETCD_BUCKET` | yes | | OCI Object Storage bucket holding the etcd snapshots (k3s, or talos-backup on Talos) |
 | `ETCD_PREFIX` | yes | | Object name prefix of the snapshots |
+| `AWS_ACCESS_KEY_ID` | no | | Access key of an OCI Customer Secret Key: when set, the bucket is listed through OCI's S3-compatible API instead of with instance principals |
+| `AWS_SECRET_ACCESS_KEY` | with the key | | Its secret |
+| `S3_ENDPOINT` | with the key | | `https://<namespace>.compat.objectstorage.<region>.oraclecloud.com` |
+| `S3_REGION` | with the key | | OCI region, such as `us-phoenix-1` |
 | `CLUSTER_NAME` | no | `k3s` | Prefix of the notification titles |
 
 The hour limits accept decimals (`36`, `0.5`).
@@ -56,11 +60,16 @@ It needs the cluster around it:
   and `volumes` (API group `longhorn.io`, version `v1beta2`) in
   `longhorn-system`. The check reads them through the in-cluster Kubernetes
   API with the pod's token.
-- An OCI dynamic group for the cluster's instances, with a policy allowing
-  it to list objects in the bucket. The check signs in with instance
-  principals through the
-  [OCI Python SDK](https://docs.oracle.com/en-us/iaas/tools/python/latest/),
-  so no OCI credentials are stored in the cluster.
+- Read access to the bucket, one of:
+  - a Customer Secret Key of a user limited to the bucket (the four
+    `AWS_*`/`S3_*` variables). The pod then needs no path to the instance
+    metadata service, which on most clusters it should never have;
+  - an OCI dynamic group for the cluster's instances, with a policy allowing
+    it to list objects in the bucket. The check signs in with instance
+    principals through the
+    [OCI Python SDK](https://docs.oracle.com/en-us/iaas/tools/python/latest/),
+    so no OCI credentials are stored in the cluster, but the pod must reach
+    `169.254.169.254`.
 - Egress to the Kubernetes API, OCI and the Apprise server.
 
 The image runs as uid 65534 and works with a read-only root filesystem.
