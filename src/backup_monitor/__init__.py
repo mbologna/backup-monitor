@@ -8,10 +8,14 @@ notification; the run exits non-zero if anything was stale, failed or could
 not be reported.
 
 Runs in-cluster: Longhorn is read through the Kubernetes API with the pod's
-service account, OCI with instance-principal auth.
+service account. The bucket is listed through OCI's S3-compatible API with a
+Customer Secret Key when AWS_ACCESS_KEY_ID is set, else with the nodes'
+instance principal.
 """
 
 import datetime as dt
+import hashlib
+import hmac
 import json
 import os
 import ssl
@@ -19,6 +23,7 @@ import sys
 import traceback
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET  # nosec B405: parses only the S3 endpoint's TLS-authenticated replies
 
 import apprise
 
@@ -109,7 +114,18 @@ def check_longhorn(get, now, max_age):
 
 
 def list_etcd_snapshots(bucket, prefix):
-    """Creation times of the objects under prefix, via OCI instance principals."""
+    """Creation times of the objects under prefix: through the S3 API when
+    AWS_ACCESS_KEY_ID is set, else via OCI instance principals."""
+    env = os.environ
+    if env.get("AWS_ACCESS_KEY_ID"):
+        return list_s3_objects(
+            env["S3_ENDPOINT"],
+            env["S3_REGION"],
+            bucket,
+            prefix,
+            env["AWS_ACCESS_KEY_ID"],
+            env["AWS_SECRET_ACCESS_KEY"],
+        )
     import oci
 
     signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
@@ -119,6 +135,51 @@ def list_etcd_snapshots(bucket, prefix):
         client.list_objects, ns, bucket, prefix=prefix, fields="timeCreated"
     ).data.objects
     return [o.time_created for o in objs]
+
+
+def sigv4_headers(method, url, region, access_key, secret_key, now):
+    """Headers that sign a body-less request with AWS Signature Version 4 (service s3)."""
+    parts = urllib.parse.urlsplit(url)
+    amz_date, day = now.strftime("%Y%m%dT%H%M%SZ"), now.strftime("%Y%m%d")
+    payload = hashlib.sha256(b"").hexdigest()
+    query = "&".join(
+        f"{urllib.parse.quote(k, safe='-_.~')}={urllib.parse.quote(v, safe='-_.~')}"
+        for k, v in sorted(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
+    )
+    headers = {"host": parts.netloc, "x-amz-content-sha256": payload, "x-amz-date": amz_date}
+    signed = ";".join(headers)
+    canonical = "\n".join(
+        [method, parts.path or "/", query, *(f"{k}:{v}" for k, v in headers.items()), "", signed, payload]
+    )
+    scope = f"{day}/{region}/s3/aws4_request"
+    to_sign = f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{hashlib.sha256(canonical.encode()).hexdigest()}"
+    key = f"AWS4{secret_key}".encode()
+    for part in (day, region, "s3", "aws4_request"):
+        key = hmac.new(key, part.encode(), hashlib.sha256).digest()
+    signature = hmac.new(key, to_sign.encode(), hashlib.sha256).hexdigest()
+    headers["Authorization"] = (
+        f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed}, Signature={signature}"
+    )
+    return headers
+
+
+def list_s3_objects(endpoint, region, bucket, prefix, access_key, secret_key):
+    """LastModified of every object under prefix (ListObjectsV2, path-style)."""
+    ns = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+    times, token = [], None
+    while True:
+        query = {"list-type": "2", "prefix": prefix}
+        if token:
+            query["continuation-token"] = token
+        url = f"{endpoint.rstrip('/')}/{urllib.parse.quote(bucket)}?{urllib.parse.urlencode(query)}"
+        headers = sigv4_headers("GET", url, region, access_key, secret_key, dt.datetime.now(dt.UTC))
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310: the configured https S3 endpoint
+            root = ET.fromstring(r.read())  # nosec B314: TLS-authenticated reply of the S3 endpoint
+        times += [ts(e.text) for e in root.iter(f"{ns}LastModified")]
+        token = root.findtext(f"{ns}NextContinuationToken")
+        if root.findtext(f"{ns}IsTruncated") != "true" or not token:
+            return times
 
 
 def check_etcd(times, now, max_age, prefix):
